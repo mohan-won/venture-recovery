@@ -1,0 +1,59 @@
+name: Generate macOS Ventura Recovery Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      ventura_version:
+        description: "Ventura version (e.g. 13.7.8)"
+        required: true
+        default: "13.7.8"
+
+run-name: Generate macOS Ventura Recovery (${{ inputs.ventura_version }})
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch macOS Ventura installer
+        run: |
+          set -euxo pipefail
+          sudo softwareupdate --fetch-full-installer --full-installer-version "${{ inputs.ventura_version }}"
+          test -d "/Applications/Install macOS Ventura.app"
+
+      - name: Create and attach target DMG
+        run: |
+          set -euxo pipefail
+          sudo hdiutil create -o /tmp/Ventura -size 20000m -volname "Ventura" -layout SPUD -fs HFS+J
+          sudo hdiutil attach /tmp/Ventura.dmg -noverify -mountpoint /Volumes/Ventura
+          # Give the system a moment to finish mounting
+          sleep 8
+          df -h
+
+      - name: Run createinstallmedia (Ventura)
+        run: |
+          set -euxo pipefail
+          sudo "/Applications/Install macOS Ventura.app/Contents/Resources/createinstallmedia" \
+            --volume /Volumes/Ventura \
+            --nointeraction
+          # The created volume should be named "Install macOS Ventura"
+          ls -la "/Volumes/Install macOS Ventura"
+
+      - name: Collect com.apple.recovery.boot
+        run: |
+          set -euxo pipefail
+          SRC="/Volumes/Install macOS Ventura/com.apple.recovery.boot"
+          DEST="/tmp/com.apple.recovery.boot"
+          test -d "$SRC"
+          mkdir -p "$DEST"
+          cp -R "$SRC/" "$DEST/"
+          ls -la "$DEST"
+
+      - name: Upload com.apple.recovery.boot
+        uses: actions/upload-artifact@v4
+        with:
+          name: com.apple.recovery.boot-ventura-${{ inputs.ventura_version }}
+          path: /tmp/com.apple.recovery.boot/*
+          compression-level: 9
